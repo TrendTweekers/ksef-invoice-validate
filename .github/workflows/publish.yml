@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  # Required for OIDC. npm exchanges this token for publish rights, so no
+  # NPM_TOKEN secret exists to leak or rotate.
   id-token: write
 
 jobs:
@@ -20,15 +22,17 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Node 22 ships npm 10.x; OIDC trusted publishing needs >= 11.5.1.
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
+
       - name: Build
         run: npm run build
 
       - name: Test
         run: npm test
 
-      # --provenance publishes a signed attestation linking the tarball to this
-      # workflow run. If npm rejects it, drop the flag and publish plain.
+      # No NODE_AUTH_TOKEN on purpose. If one is set it takes precedence over
+      # OIDC and defeats the point of trusted publishing.
       - name: Publish
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
