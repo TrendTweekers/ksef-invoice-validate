@@ -1,6 +1,6 @@
 {
   "name": "ksef-invoice-validate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Zero-dependency validation for Polish invoices before KSeF submission: NIP checksum, date sanity and net + VAT = gross consistency.",
   "type": "module",
   "main": "dist/index.js",
@@ -15,7 +15,7 @@
   "keywords": ["ksef", "nip", "faktura", "invoice", "poland", "polish", "fa3", "e-invoicing", "validation", "vat"],
   "author": "Peter Hallander",
   "license": "MIT",
-  "homepage": "https://github.com/TrendTweekers/ksef-invoice-validate#readme",
+  "homepage": "https://fakturaflow.pl",
   "repository": { "type": "git", "url": "git+https://github.com/TrendTweekers/ksef-invoice-validate.git" },
   "bugs": { "url": "https://github.com/TrendTweekers/ksef-invoice-validate/issues" },
   "engines": { "node": ">=22" },
