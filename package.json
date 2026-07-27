@@ -19,5 +19,8 @@
   "repository": { "type": "git", "url": "git+https://github.com/TrendTweekers/ksef-invoice-validate.git" },
   "bugs": { "url": "https://github.com/TrendTweekers/ksef-invoice-validate/issues" },
   "engines": { "node": ">=22" },
-  "sideEffects": false
+  "sideEffects": false,
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }
