@@ -6,6 +6,11 @@ import {
   validateDate,
   validateAmounts,
   validateInvoiceForKsef,
+  polishDate,
+  polishDateFromUnix,
+  polishToday,
+  looksLikeCompany,
+  mayNeedBuyerNip,
 } from "../src/index.ts";
 
 test("accepts a NIP with a correct checksum", () => {
@@ -79,4 +84,80 @@ test("buyer NIP can be waived for consumers and foreign buyers", () => {
     { requireBuyerNip: false },
   );
   assert.equal(r.valid, true, JSON.stringify(r.errors));
+});
+
+// ── Polish calendar dates ────────────────────────────────────────────────────
+// toISOString() renders UTC. Poland is UTC+2 in summer, UTC+1 in winter, so
+// anything between midnight and the offset falls on the previous UTC day.
+
+test("midnight in Warsaw is today, not yesterday", () => {
+  // 1788213600 = 2026-09-01 00:00:00 Europe/Warsaw = 2026-08-31T22:00:00Z
+  assert.equal(polishDateFromUnix(1788213600), "2026-09-01");
+  // The naive version, for contrast:
+  assert.equal(new Date(1788213600 * 1000).toISOString().slice(0, 10), "2026-08-31");
+});
+
+test("handles winter, when the offset is +1 rather than +2", () => {
+  // 1767222000 = 2026-01-01 00:00:00 Europe/Warsaw = 2025-12-31T23:00:00Z
+  // A hardcoded +2 fails this.
+  assert.equal(polishDateFromUnix(1767222000), "2026-01-01");
+});
+
+test("leaves a midday instant alone", () => {
+  assert.equal(polishDateFromUnix(1788258000), "2026-09-01");
+});
+
+test("polishToday and polishDate agree", () => {
+  const d = new Date("2026-08-31T22:00:00Z");
+  assert.equal(polishToday(d), "2026-09-01");
+  assert.equal(polishDate(d), "2026-09-01");
+});
+
+test("an invoice dated today is not 'in the future' just after midnight", () => {
+  // 00:30 on 5 September in Warsaw. Before the fix this compared a UTC-midnight
+  // Date against the instant and flagged today's invoice as future.
+  const now = new Date("2026-09-04T22:30:00Z");
+  assert.deepEqual(validateDate("2026-09-05", "issue_date", { now }), []);
+  // A genuinely future date is still rejected.
+  assert.equal(validateDate("2026-09-06", "issue_date", { now })[0].code, "date.future");
+});
+
+// ── Buyer type ───────────────────────────────────────────────────────────────
+// A missing NIP is correct for a consumer and wrong for a company. Nothing in
+// the invoice data separates them; the name sometimes does.
+
+test("spots a registered legal form in a buyer name", () => {
+  for (const name of [
+    "Bookinghost Sp. z o.o.",
+    "Imperial Tobacco Polska S.A.",
+    "Magnitudo Group sp. z.o.o.",
+    "MEDIAPLAN PIEKARSKA SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+    "Fundacja Pomocny Ratel",
+    "Acme Ltd",
+    "Muster GmbH",
+  ]) {
+    assert.equal(looksLikeCompany(name), true, name);
+  }
+});
+
+test("leaves private individuals alone", () => {
+  // A false positive here nags somebody about a correct consumer invoice,
+  // which is how a warning gets ignored.
+  for (const name of [
+    "Jan Kowalski",
+    "Viktoriia Hlushko",
+    "Blazej Werbanowski",
+    "Aleksander Stefanowicz",
+  ]) {
+    assert.equal(looksLikeCompany(name), false, name);
+  }
+  assert.equal(looksLikeCompany(null), false);
+  assert.equal(looksLikeCompany(""), false);
+});
+
+test("mayNeedBuyerNip only fires on a company with no NIP", () => {
+  assert.equal(mayNeedBuyerNip({ buyer_name: "Bookinghost Sp. z o.o.", buyer_nip: null }), true);
+  assert.equal(mayNeedBuyerNip({ buyer_name: "Bookinghost Sp. z o.o.", buyer_nip: "5260001236" }), false);
+  assert.equal(mayNeedBuyerNip({ buyer_name: "Imperial Tobacco Polska S.A.", buyer_nip: "   " }), true);
+  assert.equal(mayNeedBuyerNip({ buyer_name: "Jan Kowalski", buyer_nip: null }), false);
 });

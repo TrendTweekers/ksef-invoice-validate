@@ -84,6 +84,81 @@ export function isValidNip(nip: string | null | undefined): boolean {
 }
 
 /**
+ * The Polish calendar date of an instant, as YYYY-MM-DD.
+ *
+ * `toISOString().slice(0, 10)` is the obvious way to do this and it is wrong.
+ * It renders UTC. Poland runs UTC+2 in summer and UTC+1 in winter, so any
+ * instant between midnight and the offset falls on the previous UTC day.
+ *
+ * That matters because an issue date on a Polish invoice is a Polish calendar
+ * date, wherever the server happens to run. Get it wrong at the turn of a
+ * month and the invoice lands in the wrong VAT period, which is a correcting
+ * invoice rather than a typo.
+ *
+ * The offset comes from the timezone database, so DST is handled. A hardcoded
+ * +2 is correct until the last Sunday in October and silently wrong after it.
+ */
+const WARSAW_YMD = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Europe/Warsaw",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+export function polishDate(instant: Date): string {
+  return WARSAW_YMD.format(instant);
+}
+
+/** The Polish calendar date of a unix timestamp in SECONDS, as YYYY-MM-DD. */
+export function polishDateFromUnix(seconds: number): string {
+  return polishDate(new Date(seconds * 1000));
+}
+
+/** Today's date in Poland, as YYYY-MM-DD. */
+export function polishToday(now: Date = new Date()): string {
+  return polishDate(now);
+}
+
+/**
+ * Registered legal forms in a buyer name, Polish and the common foreign ones.
+ *
+ * A missing buyer NIP is correct for a consumer: FA(3) carries BrakID instead,
+ * and roughly three quarters of a real Polish B2C invoice book has no buyer
+ * NIP at all. It is NOT correct for a company, and filing a business sale as a
+ * consumer sale needs a correcting invoice afterwards.
+ *
+ * Nothing in the invoice data distinguishes the two. The name sometimes does.
+ * Use it to decide whether a missing NIP is worth a human look, never to
+ * reject an invoice outright.
+ *
+ * Deliberately does not match generic words like "Usługi", "Firma" or "Group":
+ * measured against a 1,142-invoice production book, these patterns flagged 6
+ * of 733 NIP-less invoices and every one was a genuine company. A sole trader
+ * is a business with a NIP whose name is a person's name, so no pattern finds
+ * those.
+ */
+const LEGAL_FORM =
+  /(\bsp(?:ó[łl]ka)?\.?\s*z\s*\.?\s*o\.?\s*\.?\s*o|\bs\.?\s*a\.?(?:\s|$|,)|\bp\.?\s*s\.?\s*a\.?(?:\s|$|,)|\bs\.?\s*c\.?(?:\s|$|,)|\bsp\.?\s*[jk]\.?(?:\s|$|,)|spółka|fundacja|stowarzyszenie|spółdzielnia|\bltd\b|\bgmbh\b|\bllc\b|\binc\b|\bs\.\s*r\.\s*o\b|\bb\.\s*v\b)/i;
+
+/** True when a buyer name carries a registered legal form. */
+export function looksLikeCompany(name: string | null | undefined): boolean {
+  return !!name && LEGAL_FORM.test(name);
+}
+
+/**
+ * True when the name says company but no NIP was supplied, so the invoice
+ * would be filed as a sale to a private individual. Advisory, not a rejection.
+ */
+export function mayNeedBuyerNip(invoice: {
+  buyer_nip?: string | null;
+  buyer_name?: string | null;
+}): boolean {
+  const nip = invoice.buyer_nip;
+  if (nip != null && String(nip).trim() !== "") return false;
+  return looksLikeCompany(invoice.buyer_name);
+}
+
+/**
  * Validate an ISO date string (YYYY-MM-DD).
  *
  * Future dates are rejected unless `allowFuture` is set, because an issue date
@@ -111,7 +186,17 @@ export function validateDate(
     return [err(field, "date.invalid", "Date is not a real calendar date.")];
   }
 
-  if (!options?.allowFuture && date > (options?.now ?? new Date())) {
+  // Compare calendar dates, not instants.
+  //
+  // This used to be `date > now`, which compares an invoice date parsed as UTC
+  // midnight against the current instant. Between midnight and 02:00 in Poland
+  // that makes today look like tomorrow, so an invoice correctly dated today
+  // was rejected as being in the future. The bug only fires in that window,
+  // which is exactly when a nightly billing run issues invoices.
+  //
+  // Both sides are now YYYY-MM-DD strings in the Polish calendar, and ISO
+  // dates compare correctly as strings.
+  if (!options?.allowFuture && value > polishToday(options?.now)) {
     return [err(field, "date.future", "Date is in the future.")];
   }
 
